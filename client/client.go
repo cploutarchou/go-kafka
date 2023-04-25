@@ -3,7 +3,6 @@ package client
 import (
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"github.com/Shopify/sarama"
 	"go-kafka/consumer"
 	"go-kafka/producer"
@@ -102,7 +101,6 @@ func NewKafka(config Config) (Kafka, error) {
 
 	var err error
 	var producer_ producer.Producer
-	var client_ sarama.Client
 
 	// Create a new Sarama configuration object with default values
 	saramaConfig := sarama.NewConfig()
@@ -173,15 +171,13 @@ func NewKafka(config Config) (Kafka, error) {
 	clientMutex.Lock()
 	defer clientMutex.Unlock()
 
-	fmt.Println(171)
 	// Create a new Sarama client object with the given broker addresses and configuration options
-	client_, err = sarama.NewClient(config.Brokers, saramaConfig)
+	client_, err := sarama.NewClient(config.Brokers, saramaConfig)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(177)
 	// Create a new producer object using the Sarama client
-	producer_, err = producer.NewProducer(client_)
+	producer_, err = producer.NewProducer(&client_)
 	if err != nil {
 		return nil, err
 	}
