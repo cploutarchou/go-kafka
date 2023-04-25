@@ -18,7 +18,7 @@ func TestNewKafka(t *testing.T) {
 			name: "TestNewKafka",
 			args: args{
 				config: Config{
-					Brokers: []string{"localhost:9092"},
+					Brokers: []string{"192.168.88.50:9092"},
 				},
 			},
 			wantErr: false,
@@ -35,6 +35,13 @@ func TestNewKafka(t *testing.T) {
 			if got == nil || got.Producer() == nil || got.Consumer() == nil {
 				t.Errorf("NewKafka() = %v, want %v", got, tt.want)
 			}
+
+			err = got.Ping()
+			if err != nil {
+				t.Errorf("NewKafka() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
 		})
 	}
 }
