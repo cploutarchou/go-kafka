@@ -1,24 +1,25 @@
-package client
+package go_kafka
 
 import (
+	"go-kafka/client"
 	"testing"
 )
 
 func TestNewKafka(t *testing.T) {
 	type args struct {
-		config Config
+		config client.Config
 	}
 	tests := []struct {
 		name    string
 		args    args
-		want    Kafka
+		want    client.Kafka
 		wantErr bool
 	}{
 		{
 			name: "TestNewKafka",
 			args: args{
-				config: Config{
-					Brokers: []string{"192.168.88.50:9092"},
+				config: client.Config{
+					Brokers: []string{"192.168.0.1:9092"},
 				},
 			},
 			wantErr: false,
@@ -26,7 +27,7 @@ func TestNewKafka(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewKafka(tt.args.config)
+			got, err := client.NewKafka(tt.args.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewKafka() error = %v, wantErr %v", err, tt.wantErr)
 				return
