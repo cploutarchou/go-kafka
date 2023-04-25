@@ -85,12 +85,12 @@ func (p *Impl) Close() error {
 
 // NewProducer creates a new Kafka producer with the given client.
 // Returns a Producer interface or an error if the producer cannot be created.
-func NewProducer(client sarama.Client) (Producer, error) {
-	syncProducer, err := sarama.NewSyncProducerFromClient(client)
+func NewProducer(client *sarama.Client) (Producer, error) {
+	syncProducer, err := sarama.NewSyncProducerFromClient(*client)
 	if err != nil {
 		return nil, err
 	}
-	asyncProducer, err := sarama.NewAsyncProducerFromClient(client)
+	asyncProducer, err := sarama.NewAsyncProducerFromClient(*client)
 	if err != nil {
 		return nil, err
 	}
