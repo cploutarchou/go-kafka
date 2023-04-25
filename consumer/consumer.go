@@ -45,6 +45,7 @@ type Config struct {
 	MaxProcessing  int
 	CommitInterval time.Duration
 	RebalancedWait time.Duration
+	Topic          string
 }
 
 func NewConsumer(config Config, saramaConfig *sarama.Config) (Consumer, error) {
