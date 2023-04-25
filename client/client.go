@@ -2,6 +2,7 @@ package client
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"github.com/Shopify/sarama"
 	"go-kafka/consumer"
@@ -27,7 +28,11 @@ type Kafka interface {
 	// Close closes the underlying client and releases all resources associated with it.
 	Close() error
 
+	// Consumer returns a consumer that can be used to receive messages from Kafka.
 	Consumer() consumer.Consumer
+
+	// Ping checks if the client can connect to the Kafka cluster.
+	Ping() error
 }
 
 // kafkaImpl is an implementation of the Kafka interface that uses the Sarama library.
@@ -214,4 +219,23 @@ func (k *kafkaImpl) Consumer() consumer.Consumer {
 	}
 
 	return c
+}
+
+// Ping pings the Kafka cluster to check if it is available.
+func (k *kafkaImpl) Ping() error {
+	// Synchronize access to the Sarama client
+	clientMutex.Lock()
+	defer clientMutex.Unlock()
+
+	// Ping the Kafka cluster
+	v := k.client.Brokers()
+	for _, broker := range v {
+		if err := broker.Open(k.client.Config()); err != nil {
+			return err
+		}
+	}
+	if len(v) == 0 {
+		return errors.New("unable to ping Kafka cluster")
+	}
+	return nil
 }
