@@ -3,38 +3,17 @@ package client
 import (
 	"crypto/tls"
 	"errors"
-	"github.com/Shopify/sarama"
+	"fmt"
 	"go-kafka/consumer"
 	"go-kafka/producer"
-	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Shopify/sarama"
 )
 
-var (
-	mu            sync.Mutex
-	clientMutex   sync.Mutex
-	producerMutex sync.Mutex
-)
-
-// Kafka represents a client for interacting with a Kafka cluster.
-type Kafka interface {
-	// Producer returns a producer that can be used to send messages to Kafka.
-	Producer() producer.Producer
-
-	// Close closes the underlying client and releases all resources associated with it.
-	Close() error
-
-	// Consumer returns a consumer that can be used to receive messages from Kafka.
-	Consumer() consumer.Consumer
-
-	// Ping checks if the client can connect to the Kafka cluster.
-	Ping() error
-}
-
-// kafkaImpl is an implementation of the Kafka interface that uses the Sarama library.
 type kafkaImpl struct {
 	producer producer.Producer
 	consumer consumer.Consumer
@@ -42,72 +21,75 @@ type kafkaImpl struct {
 	Config   Config
 }
 
-// Producer returns a producer that can be used to send messages to Kafka.
-func (k *kafkaImpl) Producer() producer.Producer {
-	return k.producer
-}
-
-// Close closes the underlying client and releases all resources associated with it.
-func (k *kafkaImpl) Close() error {
-	return k.client.Close()
-}
-
-// Config represents the configuration options for a Kafka client.
 type Config struct {
-	// Brokers is a list of Kafka broker addresses in the format "host:port".
-	Brokers []string
-
-	// Net is an optional dialer that allows for custom network dialer options.
-	Net *net.Dialer
-
-	// TLS is an optional config that enables TLS communication with Kafka brokers.
-	TLS *tls.Config
-
-	// SASL is an optional config that enables SASL authentication with Kafka brokers.
-	SASL *sarama.Config
-
-	// Compression is an optional string that sets the compression algorithm to use for messages.
-	Compression string
-
-	// MaxRetryBackoff is an optional duration that sets the maximum amount of time to wait between retries.
-	MaxRetryBackoff time.Duration
-
-	// MaxMessageBytes is an optional integer that sets the maximum size of a message in bytes.
-	MaxMessageBytes int
-
-	// Timeout is an optional duration that sets the timeout for network requests to Kafka brokers.
-	Timeout time.Duration
-
-	// RetryBackoff is an optional duration that sets the amount of time to wait between retries.
-	RetryBackoff time.Duration
-
-	// RequiredAcks is an optional setting that specifies the number of acks required for a message to be considered sent.
-	RequiredAcks sarama.RequiredAcks
-
-	// Partitioner is an optional constructor for a custom partitioner to use when sending messages.
-	Partitioner sarama.PartitionerConstructor
-
-	// ClientID is an optional string that specifies the client identifier to use for Kafka client.
-	ClientID string
-
-	// GroupID is an optional string that specifies the consumer group identifier to use for Kafka client.
-	GroupID        string
-	Heartbeat      time.Duration
-	SessionTimeout time.Duration
-	MaxProcessing  int
-	CommitInterval time.Duration
-	RebalancedWait time.Duration
-	Topic          string
+	Brokers           []string
+	Net               *net.Dialer
+	TLS               *tls.Config
+	SASL              *sarama.Config
+	Compression       string
+	MaxRetryBackoff   time.Duration
+	MaxMessageBytes   int
+	Timeout           time.Duration
+	RetryBackoff      time.Duration
+	RequiredAcks      sarama.RequiredAcks
+	Partitioner       sarama.PartitionerConstructor
+	ClientID          string
+	GroupID           string
+	Heartbeat         time.Duration
+	SessionTimeout    time.Duration
+	CommitInterval    time.Duration
+	RebalancedWait    time.Duration
+	Topic             string
+	MaxProcessing     int
+	MaxProcessingTime time.Duration
 }
 
-// NewKafka creates a new Kafka client with the given configuration options.
-// Returns a Kafka interface or an error if the client cannot be created.
-func NewKafka(config Config) (Kafka, error) {
-	mu.Lock()
-	defer mu.Unlock()
+type Kafka interface {
+	Producer() producer.Producer
+	Close() error
+	Consumer() consumer.Consumer
+	Ping() error
+}
 
+var (
+	clientMutex sync.Mutex
+)
+
+func (k *kafkaImpl) Close() error {
+	// Release resources
+	k.producer.Close()
+	k.consumer.Close()
+	k.client.Close()
+
+	return nil
+}
+
+func (k *kafkaImpl) Consumer() consumer.Consumer {
+	return k.consumer
+}
+
+func (k *kafkaImpl) Ping() error {
+	// Synchronize access to the Sarama client
+	clientMutex.Lock()
+	defer clientMutex.Unlock()
+
+	// Ping the Kafka cluster
+	v := k.client.Brokers()
+	for _, broker := range v {
+		if err := broker.Open(k.client.Config()); err != nil {
+			return err
+		}
+	}
+	if len(v) == 0 {
+		return errors.New("unable to ping Kafka cluster")
+	}
+	return nil
+}
+
+func NewKafka(config Config) (Kafka, error) {
 	var err error
 	var producer_ producer.Producer
+	var client_ sarama.Client
 
 	// Create a new Sarama configuration object with default values
 	saramaConfig := sarama.NewConfig()
@@ -140,23 +122,19 @@ func NewKafka(config Config) (Kafka, error) {
 			compression = sarama.CompressionSnappy
 		case "lz4":
 			compression = sarama.CompressionLZ4
+		case "zstd":
+			compression = sarama.CompressionZSTD
 		default:
-			// Print a warning message and set compression to none
-			log.Default().Println("Invalid compression type. Setting compression to none.")
-			compression = sarama.CompressionNone
+			return nil, fmt.Errorf("unknown compression algorithm: %s", config.Compression)
+
 		}
 
-		// Synchronize access to the Producer fields
-		producerMutex.Lock()
-		defer producerMutex.Unlock()
-
-		// Update the Producer fields with the new compression codec
 		saramaConfig.Producer.Compression = compression
 	}
 
 	// Apply maximum retry backoff if provided
 	if config.MaxRetryBackoff != 0 {
-		saramaConfig.Producer.Retry.Backoff = config.MaxRetryBackoff
+		saramaConfig.Producer.Retry.Max = int(config.MaxRetryBackoff)
 	}
 
 	// Apply maximum message bytes if provided
@@ -164,72 +142,100 @@ func NewKafka(config Config) (Kafka, error) {
 		saramaConfig.Producer.MaxMessageBytes = config.MaxMessageBytes
 	}
 
-	// Apply timeout for network requests if provided
+	// Apply timeout if provided
 	if config.Timeout != 0 {
-		saramaConfig.Producer.Timeout = config.Timeout
+		saramaConfig.Net.DialTimeout = config.Timeout
+		saramaConfig.Net.ReadTimeout = config.Timeout
+		saramaConfig.Net.WriteTimeout = config.Timeout
 	}
 
-	// Apply retry backoff time if provided
+	// Apply retry backoff if provided
 	if config.RetryBackoff != 0 {
 		saramaConfig.Producer.Retry.Backoff = config.RetryBackoff
 	}
 
-	// Synchronize access to the Sarama client and producer creation
-	clientMutex.Lock()
-	defer clientMutex.Unlock()
+	// Apply required acks if provided
+	if config.RequiredAcks != 0 {
+		saramaConfig.Producer.RequiredAcks = config.RequiredAcks
+	}
 
-	// Create a new Sarama client object with the given broker addresses and configuration options
-	client_, err := sarama.NewClient(config.Brokers, saramaConfig)
+	// Apply partitioner if provided
+	if config.Partitioner != nil {
+		saramaConfig.Producer.Partitioner = config.Partitioner
+	}
+
+	// Apply client ID if provided
+	if config.ClientID != "" {
+		saramaConfig.ClientID = config.ClientID
+	}
+
+	// Apply group ID if provided
+	if config.GroupID != "" {
+		saramaConfig.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
+	}
+
+	// Apply heartbeat if provided
+	if config.Heartbeat != 0 {
+		saramaConfig.Consumer.Group.Heartbeat.Interval = config.Heartbeat
+	}
+
+	// Apply session timeout if provided
+	if config.SessionTimeout != 0 {
+		saramaConfig.Consumer.Group.Session.Timeout = config.SessionTimeout
+	}
+
+	// Apply max processing if provided
+	if config.MaxProcessing != 0 {
+		saramaConfig.Consumer.MaxProcessingTime = config.MaxProcessingTime
+	}
+
+	// Apply commit interval if provided
+	if config.CommitInterval != 0 {
+		saramaConfig.Consumer.Group.Rebalance.Timeout = config.CommitInterval
+	}
+
+	// Apply rebalanced wait if provided
+	if config.RebalancedWait != 0 {
+		saramaConfig.Consumer.Group.Rebalance.Timeout = config.RebalancedWait
+	}
+
+	// Create a new Sarama client
+	client_, err = sarama.NewClient(config.Brokers, saramaConfig)
 	if err != nil {
 		return nil, err
 	}
-	// Create a new producer object using the Sarama client
+
+	// Create a new Sarama producer
 	producer_, err = producer.NewProducer(&client_)
 	if err != nil {
 		return nil, err
 	}
-	consumerConf := consumer.Config{
-		Brokers:        config.Brokers,
+
+	conConf := consumer.Config{
 		GroupID:        config.GroupID,
 		Heartbeat:      config.Heartbeat,
 		SessionTimeout: config.SessionTimeout,
 		MaxProcessing:  config.MaxProcessing,
 		CommitInterval: config.CommitInterval,
 		RebalancedWait: config.RebalancedWait,
-		Topic:          config.Topic,
 	}
-	consumer_, err := consumer.NewConsumerGroup(consumerConf, saramaConfig)
+
+	// Create a new Sarama consumer group
+	consumerGroup_, err := consumer.NewConsumerGroup(conConf, saramaConfig, client_)
 	if err != nil {
 		return nil, err
 	}
-	// Return a new Kafka client object
-	return &kafkaImpl{
-		producer: producer_,
-		consumer: consumer_,
+
+	// Create a new Kafka client
+	k := &kafkaImpl{
 		client:   client_,
-		Config:   config,
-	}, nil
+		producer: producer_,
+		consumer: consumerGroup_,
+	}
+
+	return k, nil
 }
 
-func (k *kafkaImpl) Consumer() consumer.Consumer {
-	return k.consumer
-}
-
-// Ping pings the Kafka cluster to check if it is available.
-func (k *kafkaImpl) Ping() error {
-	// Synchronize access to the Sarama client
-	clientMutex.Lock()
-	defer clientMutex.Unlock()
-
-	// Ping the Kafka cluster
-	v := k.client.Brokers()
-	for _, broker := range v {
-		if err := broker.Open(k.client.Config()); err != nil {
-			return err
-		}
-	}
-	if len(v) == 0 {
-		return errors.New("unable to ping Kafka cluster")
-	}
-	return nil
+func (k *kafkaImpl) Producer() producer.Producer {
+	return k.producer
 }
