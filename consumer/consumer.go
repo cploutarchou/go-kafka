@@ -2,39 +2,30 @@ package consumer
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/Shopify/sarama"
 )
 
-type Stream interface {
-	Messages() <-chan *sarama.ConsumerMessage
-	Errors() <-chan error
-	Close() error
-}
-
 type Consumer interface {
-	Stream() Stream
+	Stream() (Stream, error)
 	Close() error
-}
-
-type streamImpl struct {
-	consumer sarama.ConsumerGroup
-	ctx      context.Context
-	messages chan *sarama.ConsumerMessage
-	errors   chan error
-	wg       sync.WaitGroup
-	mutex    sync.Mutex
-	closed   bool
+	Subscribe([]string) error
 }
 
 type consumerImpl struct {
-	saramaConfig *sarama.Config
-	config       Config
-	stream       *streamImpl
-	mutex        sync.Mutex
-	closed       bool
+	saramaConfig   *sarama.Config
+	config         Config
+	stream         *streamImpl
+	mutex          sync.Mutex
+	closed         bool
+	consumer       sarama.ConsumerGroup
+	ctx            context.Context
+	cancel         context.CancelFunc
+	topics         []string
+	rebalancedOnce sync.Once
 }
 
 type Config struct {
@@ -48,12 +39,13 @@ type Config struct {
 	Topic          string
 }
 
-func NewConsumer(config Config, saramaConfig *sarama.Config) (Consumer, error) {
+func NewConsumerGroup(config Config, saramaConfig *sarama.Config) (Consumer, error) {
 	consumer, err := sarama.NewConsumerGroup(config.Brokers, config.GroupID, saramaConfig)
 	if err != nil {
+		fmt.Println("Error creating consumer group client: %v", err)
 		return nil, err
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	messages := make(chan *sarama.ConsumerMessage)
 	errors := make(chan error)
 	stream := &streamImpl{
@@ -69,11 +61,15 @@ func NewConsumer(config Config, saramaConfig *sarama.Config) (Consumer, error) {
 		stream:       stream,
 		mutex:        sync.Mutex{},
 		closed:       false,
+		consumer:     consumer,
+		ctx:          ctx,
+		cancel:       cancel,
+		topics:       nil,
 	}, nil
 }
 
-func (c *consumerImpl) Stream() Stream {
-	return c.stream
+func (c *consumerImpl) Stream() (Stream, error) {
+	return c.stream, nil
 }
 
 func (c *consumerImpl) Close() error {
@@ -83,28 +79,8 @@ func (c *consumerImpl) Close() error {
 		return nil
 	}
 	c.closed = true
+	c.cancel()
 	return c.stream.Close()
-}
-
-func (s *streamImpl) Messages() <-chan *sarama.ConsumerMessage {
-	return s.messages
-}
-
-func (s *streamImpl) Errors() <-chan error {
-	return s.errors
-}
-
-func (s *streamImpl) Close() error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	close(s.messages)
-	close(s.errors)
-	s.wg.Wait()
-	return s.consumer.Close()
 }
 
 func (s *streamImpl) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
@@ -131,4 +107,9 @@ func (s *streamImpl) ConsumeClaim(session sarama.ConsumerGroupSession, claim sar
 			return nil
 		}
 	}
+}
+
+func (c *consumerImpl) Subscribe(topics []string) error {
+	c.topics = topics
+	return nil
 }
