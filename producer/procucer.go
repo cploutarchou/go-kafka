@@ -16,6 +16,7 @@ import (
 // producer and release all resources associated with it.
 type Producer interface {
 	Send(topic string, key []byte, value []byte) error
+	SendMsg(message *Message) error
 	SendAsync(topic string, key []byte, value []byte) error
 	Close() error
 }
@@ -27,6 +28,12 @@ type Impl struct {
 	producerAsync sarama.AsyncProducer
 	closed        bool
 	wg            *sync.WaitGroup
+}
+
+type Message struct {
+	Topic string
+	Key   string
+	Value []byte
 }
 
 // Send sends a synchronous message to the given Kafka topic with the specified key and value.
@@ -81,6 +88,14 @@ func (p *Impl) Close() error {
 		p.wg.Wait() // Wait for all goroutines to finish
 	}
 	return err
+}
+
+func (p *Impl) SendMsg(message *Message) error {
+	if message == nil {
+		return errors.New("message is nil")
+	}
+
+	return p.Send(message.Topic, []byte(message.Key), message.Value)
 }
 
 // NewProducer creates a new Kafka producer with the given client.
