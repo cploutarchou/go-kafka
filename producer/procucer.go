@@ -2,9 +2,10 @@ package producer
 
 import (
 	"errors"
-	"github.com/Shopify/sarama"
 	"log"
 	"sync"
+
+	"github.com/Shopify/sarama"
 )
 
 // Producer Package producer provides a Kafka producer that can be used to send messages to Kafka.
