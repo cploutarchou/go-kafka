@@ -37,6 +37,7 @@ type Kafka interface {
 // kafkaImpl is an implementation of the Kafka interface that uses the Sarama library.
 type kafkaImpl struct {
 	producer producer.Producer
+	consumer consumer.Consumer
 	client   sarama.Client
 	Config   Config
 }
@@ -90,7 +91,13 @@ type Config struct {
 	ClientID string
 
 	// GroupID is an optional string that specifies the consumer group identifier to use for Kafka client.
-	GroupID string
+	GroupID        string
+	Heartbeat      time.Duration
+	SessionTimeout time.Duration
+	MaxProcessing  int
+	CommitInterval time.Duration
+	RebalancedWait time.Duration
+	Topic          string
 }
 
 // NewKafka creates a new Kafka client with the given configuration options.
@@ -181,40 +188,31 @@ func NewKafka(config Config) (Kafka, error) {
 	if err != nil {
 		return nil, err
 	}
+	consumerConf := consumer.Config{
+		Brokers:        config.Brokers,
+		GroupID:        config.GroupID,
+		Heartbeat:      config.Heartbeat,
+		SessionTimeout: config.SessionTimeout,
+		MaxProcessing:  config.MaxProcessing,
+		CommitInterval: config.CommitInterval,
+		RebalancedWait: config.RebalancedWait,
+		Topic:          config.Topic,
+	}
+	consumer_, err := consumer.NewConsumerGroup(consumerConf, saramaConfig)
+	if err != nil {
+		return nil, err
+	}
 	// Return a new Kafka client object
 	return &kafkaImpl{
 		producer: producer_,
+		consumer: consumer_,
 		client:   client_,
 		Config:   config,
 	}, nil
 }
 
 func (k *kafkaImpl) Consumer() consumer.Consumer {
-	// Create a new Sarama configuration object with default values
-	saramaConfig := sarama.NewConfig()
-	saramaConfig.Version = sarama.V2_0_0_0
-	saramaConfig.Consumer.Offsets.Initial = sarama.OffsetOldest
-	saramaConfig.Consumer.Group.Session.Timeout = 10 * time.Second
-	saramaConfig.Consumer.Group.Heartbeat.Interval = 3 * time.Second
-	saramaConfig.Consumer.Group.Rebalance.Timeout = 60 * time.Second
-	// Create a new consumer configuration object with the given broker addresses and configuration options
-	consumerConfig := consumer.Config{
-		Brokers:        k.Config.Brokers,
-		GroupID:        k.Config.GroupID,
-		Heartbeat:      3 * time.Second,
-		SessionTimeout: 10 * time.Second,
-		MaxProcessing:  100,
-		CommitInterval: 1 * time.Second,
-		RebalancedWait: 60 * time.Second,
-	}
-
-	// Create a new consumer object using the consumer configuration
-	c, err := consumer.NewConsumer(consumerConfig, saramaConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return c
+	return k.consumer
 }
 
 // Ping pings the Kafka cluster to check if it is available.
