@@ -1,136 +1,154 @@
 package producer
 
 import (
+	"context"
 	"errors"
+	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/compress"
+	"go-kafka/types"
 	"log"
-	"sync"
-
-	"github.com/Shopify/sarama"
+	"os"
+	"time"
 )
 
-// Producer Package producer provides a Kafka producer that can be used to send messages to Kafka.
-//
-// The producer interface allows for sending messages synchronously and asynchronously to a Kafka cluster.
-// This package uses the Sarama library to interact with Kafka.
-//
-// The producer implementation is thread-safe and concurrent, and it provides a way to gracefully shut down the
-// producer and release all resources associated with it.
+var ctx = context.Background()
+
 type Producer interface {
 	Send(topic string, key []byte, value []byte) error
-	SendMsg(message *Message) error
 	SendAsync(topic string, key []byte, value []byte) error
 	Close() error
 }
 
-// Impl is an implementation of the Producer interface that uses the Sarama library.
 type Impl struct {
-	sync.Mutex
-	producer      sarama.SyncProducer
-	producerAsync sarama.AsyncProducer
-	closed        bool
-	wg            *sync.WaitGroup
+	writer *kafka.Writer
 }
 
-type Message struct {
-	Topic string
-	Key   string
-	Value []byte
-}
-
-// Send sends a synchronous message to the given Kafka topic with the specified key and value.
-// This method blocks until the message is sent successfully or an error occurs.
-// If the producer has been closed, an error is returned.
-func (p *Impl) Send(topic string, key []byte, value []byte) error {
-	p.Lock()
-	defer p.Unlock()
-	if p.closed {
-		return errors.New("producer is closed")
-	}
-	message := &sarama.ProducerMessage{
-		Topic: topic,
-		Key:   sarama.ByteEncoder(key),
-		Value: sarama.ByteEncoder(value),
-	}
-	_, _, err := p.producer.SendMessage(message)
-	return err
-}
-
-// SendAsync sends an asynchronous message to the given Kafka topic with the specified key and value.
-// This method returns immediately and does not block.
-// If the producer has been closed, an error is returned.
-func (p *Impl) SendAsync(topic string, key []byte, value []byte) error {
-	p.Lock()
-	defer p.Unlock()
-	if p.closed {
-		return errors.New("producer is closed")
-	}
-	message := &sarama.ProducerMessage{
-		Topic: topic,
-		Key:   sarama.ByteEncoder(key),
-		Value: sarama.ByteEncoder(value),
-	}
-	p.producerAsync.Input() <- message
-	return nil
-}
-
-// Close closes the producer and releases all resources associated with it.
-// This method blocks until all messages have been sent and all goroutines have finished.
-// If the producer has already been closed, this method returns nil.
-func (p *Impl) Close() error {
-	p.Lock()
-	defer p.Unlock()
-	if p.closed {
-		return nil
-	}
-	err := p.producer.Close()
-	if err == nil {
-		p.closed = true
-		p.producerAsync.AsyncClose()
-		p.wg.Wait() // Wait for all goroutines to finish
-	}
-	return err
-}
-
-func (p *Impl) SendMsg(message *Message) error {
-	if message == nil {
-		return errors.New("message is nil")
-	}
-
-	return p.Send(message.Topic, []byte(message.Key), message.Value)
-}
-
-// NewProducer creates a new Kafka producer with the given client.
-// Returns a Producer interface or an error if the producer cannot be created.
-func NewProducer(client *sarama.Client) (Producer, error) {
-	syncProducer, err := sarama.NewSyncProducerFromClient(*client)
-	if err != nil {
-		return nil, err
-	}
-	asyncProducer, err := sarama.NewAsyncProducerFromClient(*client)
-	if err != nil {
-		return nil, err
-	}
-
-	// Use a WaitGroup to ensure all goroutines are finished before returning the producer
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case msg := <-asyncProducer.Successes():
-				log.Printf("Produced message to topic %s partition %d offset %d\n",
-					msg.Topic, msg.Partition, msg.Offset)
-			case err := <-asyncProducer.Errors():
-				log.Printf("Failed to produce message: %s\n", err.Error())
-			}
+func NewProducer(brokers []string, topic string, config *types.WriterConfig) (Producer, error) {
+	if config == nil {
+		// Set default config values
+		config = &types.WriterConfig{
+			Addr:                   brokers,
+			Topic:                  topic,
+			Balancer:               nil,
+			MaxAttempts:            10,
+			WriteBackoffMin:        50 * time.Millisecond,
+			WriteBackoffMax:        5 * time.Second,
+			BatchSize:              100,
+			BatchBytes:             1024 * 1024,
+			BatchTimeout:           1 * time.Second,
+			ReadTimeout:            10 * time.Second,
+			WriteTimeout:           10 * time.Second,
+			RequiredAcks:           1,
+			Async:                  true,
+			Compression:            nil,
+			Logger:                 nil,
+			ErrorLogger:            nil,
+			Transport:              nil,
+			AllowAutoTopicCreation: false,
 		}
-	}()
+	}
 
-	// Return a new Producer object
+	if len(config.Addr) == 0 {
+		return nil, errors.New("at least one broker is required")
+	}
+	if config.Topic == "" {
+		return nil, errors.New("topic cannot be empty")
+	}
+	if config.Balancer == nil {
+		config.Balancer = &kafka.LeastBytes{}
+	}
+	if config.Logger == nil {
+		// Set default logger
+		config.Logger = log.New(os.Stderr, "kafka writer: ", log.LstdFlags)
+
+	}
+	if config.ErrorLogger == nil {
+		// Set default error logger
+		config.ErrorLogger = log.New(os.Stderr, "kafka writer error: ", log.LstdFlags)
+	}
+
+	// Check if compression is set
+	var writeComp compress.Compression
+	switch config.Compression.Name() {
+	case "gzip":
+		config.Compression = compress.Gzip.Codec()
+		writeComp = compress.Gzip
+	case "snappy":
+		config.Compression = compress.Snappy.Codec()
+		writeComp = compress.Snappy
+	case "lz4":
+		config.Compression = compress.Lz4.Codec()
+		writeComp = compress.Lz4
+	case "zstd":
+		config.Compression = compress.Zstd.Codec()
+		writeComp = compress.Zstd
+	default:
+		config.Compression = compress.Snappy.Codec()
+		writeComp = compress.Snappy
+
+	}
+	// Check if transport is kafka.Transport{} using deep equal
+	if config.Transport == nil {
+		transport := &kafka.Transport{
+			Dial:        nil,
+			DialTimeout: 10 * time.Second,
+			IdleTimeout: 10 * time.Second,
+			MetadataTTL: 5 * time.Minute,
+			ClientID:    "go-kafka",
+			TLS:         nil,
+			SASL:        nil,
+			Resolver:    nil,
+			Context:     ctx,
+		}
+		config.Transport = transport
+
+	}
+
+	writer := kafka.Writer{
+		Addr:                   kafka.TCP(config.Addr...),
+		Topic:                  config.Topic,
+		Balancer:               config.Balancer,
+		MaxAttempts:            config.MaxAttempts,
+		WriteBackoffMin:        config.WriteBackoffMin,
+		WriteBackoffMax:        config.WriteBackoffMax,
+		BatchSize:              config.BatchSize,
+		BatchBytes:             int64(config.BatchBytes),
+		BatchTimeout:           config.BatchTimeout,
+		ReadTimeout:            config.ReadTimeout,
+		WriteTimeout:           config.WriteTimeout,
+		RequiredAcks:           kafka.RequiredAcks(config.RequiredAcks),
+		Async:                  config.Async,
+		Compression:            writeComp,
+		Logger:                 config.Logger,
+		ErrorLogger:            config.ErrorLogger,
+		Transport:              config.Transport,
+		AllowAutoTopicCreation: config.AllowAutoTopicCreation,
+	}
+
 	return &Impl{
-		producer:      syncProducer,
-		producerAsync: asyncProducer,
-		wg:            &wg,
+		writer: &writer,
 	}, nil
+
+}
+
+func (k *Impl) Send(topic string, key []byte, value []byte) error {
+	k.writer.Async = false
+	k.writer.Topic = topic
+	return k.writer.WriteMessages(context.Background(), kafka.Message{
+		Key:   key,
+		Value: value,
+	})
+}
+
+func (k *Impl) SendAsync(topic string, key []byte, value []byte) error {
+	k.writer.Async = true
+	k.writer.Topic = topic
+	return k.writer.WriteMessages(context.Background(), kafka.Message{
+		Key:   key,
+		Value: value,
+	})
+}
+
+func (k *Impl) Close() error {
+	return k.writer.Close()
 }
