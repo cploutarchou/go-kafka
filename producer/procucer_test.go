@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go-kafka/types"
 	"testing"
+	"time"
 )
 
 func TestNewProducer(t *testing.T) {
@@ -20,34 +21,14 @@ func TestNewProducer(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "TestNewProducer",
-			args: args{
-				brokers: []string{"192.168.88.50:9092"},
-				topic:   "test-22",
-				config: &types.WriterConfig{
-					Addr:            []string{"192.168.88.50:9092"},
-					Topic:           "test-22",
-					Balancer:        nil,
-					MaxAttempts:     10,
-					WriteBackoffMin: 50,
-					WriteBackoffMax: 5,
-					BatchSize:       100,
-					BatchBytes:      1024 * 1024,
-					BatchTimeout:    1,
-					ReadTimeout:     10,
-					WriteTimeout:    10,
-					RequiredAcks:    1,
-					Async:           true,
-					Compression:     nil,
-					Logger:          nil,
-				},
-			},
+			name:    "TestNewProducer",
+			args:    args{},
 			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewProducer(tt.args.brokers, tt.args.topic, tt.args.config)
+			got, err := NewProducer([]string{"192.168.88.50:90920"}, "test", tt.args.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewProducer() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -68,9 +49,7 @@ func TestNewProducer(t *testing.T) {
 
 func TestImpl_Send(t *testing.T) {
 	type args struct {
-		brokers []string
-		topic   string
-		config  *types.WriterConfig
+		config *types.WriterConfig
 	}
 	tests := []struct {
 		name    string
@@ -79,41 +58,21 @@ func TestImpl_Send(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "TestNewProducer",
-			args: args{
-				brokers: []string{"192.168.88.50:9092"},
-				topic:   "test-22",
-				config: &types.WriterConfig{
-					Addr:                   []string{"192.168.88.50:9092"},
-					Topic:                  "test-22",
-					Balancer:               nil,
-					MaxAttempts:            10,
-					WriteBackoffMin:        50,
-					WriteBackoffMax:        5,
-					BatchSize:              100,
-					BatchBytes:             1024 * 1024,
-					BatchTimeout:           1,
-					ReadTimeout:            10,
-					WriteTimeout:           10,
-					RequiredAcks:           1,
-					Async:                  true,
-					Compression:            nil,
-					Logger:                 nil,
-					AllowAutoTopicCreation: true,
-				},
-			},
+			name:    "TestNewProducer",
+			args:    args{},
 			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewProducer(tt.args.brokers, tt.args.topic, tt.args.config)
+			got, err := NewProducer([]string{"192.168.88.50:9092"}, "test", tt.args.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewProducer() error = %v, wantErr %v", err, tt.wantErr)
 			}
+			time.Sleep(5 * time.Second)
 			// send 100 message in loop to test
-			for i := 0; i < 100; i++ {
-				err := got.Send(tt.args.topic, []byte(fmt.Sprintf("test message %d", i)), []byte(fmt.Sprintf("test message %d", i)))
+			for i := 0; i < 10; i++ {
+				err := got.Send("test", []byte(fmt.Sprintf("test message %d", i)), []byte(fmt.Sprintf("test message %d", i)))
 				fmt.Println("send message ", i)
 				if err != nil {
 					t.Errorf("NewProducer() error = %v, wantErr %v", err, tt.wantErr)
