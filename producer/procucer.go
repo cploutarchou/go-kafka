@@ -67,9 +67,13 @@ func NewProducer(brokers []string, topic string, config *types.WriterConfig) (Pr
 		config.ErrorLogger = log.New(os.Stderr, "kafka writer error: ", log.LstdFlags)
 	}
 
+	if config.Compression == nil {
+		// Set default compression
+		config.Compression = compress.Snappy.Codec()
+	}
 	// Check if compression is set
 	var writeComp compress.Compression
-	switch config.Compression.Name() {
+ 	switch config.Compression.Name() {
 	case "gzip":
 		config.Compression = compress.Gzip.Codec()
 		writeComp = compress.Gzip
