@@ -10,23 +10,31 @@ import (
 	"github.com/Shopify/sarama"
 )
 
+// Consumer defines an interface for consuming messages from a Kafka topic.
 type Consumer interface {
+	// Start starts consuming messages from the Kafka topic.
 	Start() error
+	// Messages returns a channel that can be used to receive messages
+	// from the Kafka topic.
 	Messages() <-chan *sarama.ConsumerMessage
+	// Close stops the consumer and releases any resources it holds.
 	Close() error
+	// Closed returns true if the consumer has been closed.
 	Closed() bool
 }
 
+// consumer represents a Kafka consumer.
 type consumer struct {
-	config       *Config
-	consumer     sarama.ConsumerGroup
-	msgChan      chan *sarama.ConsumerMessage
-	closeOnce    sync.Once
-	closeChannel chan struct{}
-	mutex        sync.Mutex
-	closed       bool
+	config       *Config                      // The configuration used for the consumer.
+	consumer     sarama.ConsumerGroup         // The underlying Sarama consumer.
+	msgChan      chan *sarama.ConsumerMessage // The channel used to pass received messages to the client.
+	closeOnce    sync.Once                    // Ensures that the Close() method is called only once.
+	closeChannel chan struct{}                // Channel used to signal the closing of the consumer.
+	mutex        sync.Mutex                   // Mutex used to synchronize access to the consumer state.
+	closed       bool                         // Indicates whether the consumer has been closed.
 }
 
+// ConsumeClaim is the method called by the consumer interface when a consumer group claim is created.
 func (c *consumer) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages() {
 		select {
@@ -44,14 +52,21 @@ func (c *consumer) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.C
 	return nil
 }
 
+// Setup is called at the beginning of a new session, before ConsumeClaim.
+// It is used to set up any necessary resources for the session.
 func (c *consumer) Setup(_ sarama.ConsumerGroupSession) error {
 	return nil
 }
 
+// Cleanup is called at the end of a session, once all ConsumeClaim goroutines have exited.
+// It is used to clean up any resources that were set up during the session.
 func (c *consumer) Cleanup(_ sarama.ConsumerGroupSession) error {
 	return nil
 }
 
+// NewConsumer creates a new Kafka consumer with the given configuration.
+// Returns an error if the config is nil, or if any required fields are empty.
+// The returned consumer object can be used to start consuming messages.
 func NewConsumer(config *Config) (Consumer, error) {
 	if config == nil {
 		return nil, errors.New("config cannot be nil")
@@ -80,6 +95,7 @@ func NewConsumer(config *Config) (Consumer, error) {
 	}, nil
 }
 
+// Start starts consuming messages from the Kafka topic.
 func (c *consumer) Start() error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -173,18 +189,22 @@ func (c *consumer) Start() error {
 	return nil
 }
 
+// StartAsync starts consuming messages from the Kafka topic in a separate goroutine.
 func (c *consumer) StartAsync() {
 	go c.consume()
 }
 
+// StartSync starts consuming messages from the Kafka topic in the current goroutine.
 func (c *consumer) StartSync() {
 	c.consume()
 }
 
+// Messages returns a channel of messages consumed from the Kafka topic.
 func (c *consumer) Messages() <-chan *sarama.ConsumerMessage {
 	return c.msgChan
 }
 
+// Close closes the consumer.
 func (c *consumer) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.closeChannel)
@@ -194,6 +214,7 @@ func (c *consumer) Close() error {
 	return nil
 }
 
+// consume starts consuming messages from the Kafka topic.
 func (c *consumer) consume() {
 	for {
 		select {
@@ -211,16 +232,18 @@ func (c *consumer) consume() {
 	}
 }
 
+// Config is the configuration for creating a new consumer
 type Config struct {
-	Brokers  []string
-	Topic    string
-	GroupID  string
-	Logger   *log.Logger
-	MinBytes int32
-	MaxBytes int32
-	MaxWait  time.Duration
+	Brokers  []string      // A list of host:port addresses to use for establishing the initial connection to the Kafka cluster.
+	Topic    string        // Kafka topic to be consumed
+	GroupID  string        // A name for the consumer group
+	Logger   *log.Logger   // Logger used to log connection errors; defaults to log.New(os.Stderr, "", log.LstdFlags)
+	MinBytes int32         // The minimum number of bytes to fetch in a request
+	MaxBytes int32         // The maximum number of bytes to fetch in a request
+	MaxWait  time.Duration // The maximum amount of time the broker will wait for Consumer.Fetch.Min bytes to become available before it returns fewer than that anyways
 }
 
+// Closed returns true if the consumer is closed
 func (c *consumer) Closed() bool {
 	select {
 	case _, ok := <-c.msgChan:
