@@ -10,9 +10,7 @@ import (
 func TestNewProducer(t *testing.T) {
 
 	type args struct {
-		brokers []string
-		topic   string
-		config  *types.WriterConfig
+		config *types.Config
 	}
 	tests := []struct {
 		name    string
@@ -28,7 +26,7 @@ func TestNewProducer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewProducer([]string{"localhost:9092"}, "test", tt.args.config)
+			got, err := NewProducer([]string{"192.168.88.50:9092"}, "test", tt.args.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewProducer() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -49,7 +47,7 @@ func TestNewProducer(t *testing.T) {
 
 func TestImpl_Send(t *testing.T) {
 	type args struct {
-		config *types.WriterConfig
+		config *types.Config
 	}
 	tests := []struct {
 		name    string
@@ -65,7 +63,7 @@ func TestImpl_Send(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewProducer([]string{"localhost:9092"}, "test", tt.args.config)
+			got, err := NewProducer([]string{"192.168.88.50:9092"}, "test", tt.args.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewProducer() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -90,7 +88,7 @@ func TestImpl_Send(t *testing.T) {
 
 func TestImpl_AsyncSend(t *testing.T) {
 	type args struct {
-		config *types.WriterConfig
+		config *types.Config
 	}
 	tests := []struct {
 		name    string
@@ -106,7 +104,7 @@ func TestImpl_AsyncSend(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewProducer([]string{"localhost:9092"}, "test", tt.args.config)
+			got, err := NewProducer([]string{"192.168.88.50:9092"}, "test", tt.args.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewProducer() error = %v, wantErr %v", err, tt.wantErr)
 			}

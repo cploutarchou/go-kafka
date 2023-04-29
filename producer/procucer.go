@@ -2,10 +2,11 @@ package producer
 
 import (
 	"errors"
-	"github.com/Shopify/sarama"
 	"go-kafka/types"
 	"log"
 	"os"
+
+	"github.com/Shopify/sarama"
 )
 
 type Producer interface {
@@ -16,10 +17,10 @@ type Producer interface {
 
 type producerImpl struct {
 	producer sarama.SyncProducer
-	Config   *types.WriterConfig
+	Config   *types.Config
 }
 
-func NewProducer(brokers []string, topic string, config *types.WriterConfig) (Producer, error) {
+func NewProducer(brokers []string, topic string, config *types.Config) (Producer, error) {
 	if len(brokers) == 0 {
 		return nil, errors.New("at least one broker is required")
 	}
@@ -28,13 +29,13 @@ func NewProducer(brokers []string, topic string, config *types.WriterConfig) (Pr
 	}
 	if config == nil {
 		// Set default config values
-		config = &types.WriterConfig{
-			Addr:                   brokers,
+		config = &types.Config{
+			Brokers:                brokers,
 			Topic:                  topic,
 			AllowAutoTopicCreation: true,
 		}
 	} else {
-		config.Addr = brokers
+		config.Brokers = brokers
 		config.Topic = topic
 	}
 
@@ -46,7 +47,7 @@ func NewProducer(brokers []string, topic string, config *types.WriterConfig) (Pr
 	saramaConfig.Producer.Retry.Max = 3
 	saramaConfig.Producer.Return.Successes = true
 
-	producer, err := sarama.NewSyncProducer(config.Addr, saramaConfig)
+	producer, err := sarama.NewSyncProducer(config.Brokers, saramaConfig)
 	if err != nil {
 		return nil, err
 	}
