@@ -4,7 +4,6 @@ go 1.20
 
 require (
 	github.com/Shopify/sarama v1.38.1
-	github.com/segmentio/kafka-go v0.4.39
 	github.com/stretchr/testify v1.8.1
 )
 
