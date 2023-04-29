@@ -1,96 +1,77 @@
 package consumer
 
 import (
-	producer2 "go-kafka/producer"
+	"github.com/Shopify/sarama"
+	"github.com/stretchr/testify/assert"
+	"go-kafka/producer"
+	"log"
+	"os"
+	"sync"
+
 	"testing"
 	"time"
 )
 
-func TestNewConsumer(t *testing.T) {
-	type args struct {
-		config *Config
+func TestConsumer(t *testing.T) {
+	// create a test topic and start a producer
+	topic := "test_topic"
+	brokers := []string{"localhost:9092"}
+	p, err := producer.NewProducer(brokers, topic, nil)
+	assert.NoError(t, err)
+
+	// create a mew standard  logger
+	logger := log.New(os.Stderr, "", log.LstdFlags)
+	// star a consumer
+	cfg := &Config{
+		Brokers:  brokers,
+		Topic:    topic,
+		GroupID:  "test_consumer",
+		MinBytes: 1,
+		MaxBytes: 10e6,
+		MaxWait:  120 * time.Second,
+		Logger:   logger,
 	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{
-			name: "TestNewConsumer",
-			args: args{
-				config: &Config{
-					Brokers: []string{"127.0.0.1:9092"},
-					Topic:   "test",
-					GroupID: "test",
-				},
-			},
-			wantErr: false,
-		}}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewConsumer(tt.args.config)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewConsumer() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got == nil {
-				t.Errorf("NewConsumer() got = %v", got)
-				return
-			}
-			if err = got.Start(); err != nil {
-				t.Errorf("NewConsumer() error = %v", err)
-				return
-			}
+	c, err := NewConsumer(cfg)
+	assert.NoError(t, err)
 
-			producer, err := producer2.NewProducer(tt.args.config.Brokers, tt.args.config.Topic, nil)
-			if err != nil {
-				t.Errorf("NewConsumer() error creating producer = %v", err)
-				return
-			}
+	// start consuming messages
+	err = c.Start()
+	assert.NoError(t, err)
 
-			// Send message to kafka for test consumer receive message from kafka
-			// produce messages to topic (asynchronously)
-			go func() {
-				for {
-					err := producer.Send("test", []byte("test"), []byte("test"))
-					if err != nil {
-						t.Errorf("NewConsumer() error = %v, wantErr %v", err, tt.wantErr)
-						return
-					}
-				}
-			}()
-
-			// Consume messages from topic (asynchronously)
-			timeout := time.After(60 * time.Second)
-			received := false
-			for {
-				select {
-				case msg := <-got.Messages():
-					t.Logf("NewConsumer() msg = %v", string(msg.Value))
-					if string(msg.Value) == "test" {
-						received = true
-					}
-				case <-timeout:
-					t.Errorf("timeout while waiting for message")
-					return
-				}
-				if received {
-					break
-				}
-			}
-
-			// Close consumer
-			if err = got.Close(); err != nil {
-				t.Errorf("NewConsumer() error = %v", err)
-				return
-			}
-
-			// Close producer
-			if err = producer.Close(); err != nil {
-				t.Errorf("NewConsumer() error = %v", err)
-				return
-			}
-
-		})
+	// produce messages to the topic
+	numMessages := 10
+	var wg sync.WaitGroup
+	for i := 0; i < numMessages; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			value := []byte("test message")
+			err := p.Send(topic, []byte("key"), value)
+			assert.NoError(t, err)
+		}()
 	}
+	wg.Wait()
+
+	// verify that the consumer receives all the messages
+	receivedMessages := make([]*sarama.ConsumerMessage, 0, numMessages)
+	timeout := time.After(120 * time.Second)
+	for len(receivedMessages) < numMessages {
+		select {
+		case msg := <-c.Messages():
+			receivedMessages = append(receivedMessages, msg)
+		case <-timeout:
+			assert.FailNow(t, "timed out while waiting for messages")
+		}
+	}
+
+	// verify that the received messages match the send messages
+	for _, msg := range receivedMessages {
+		assert.Equal(t, "test message", string(msg.Value))
+	}
+
+	// clean up
+	err = c.Close()
+	assert.NoError(t, err)
+	err = p.Close()
+	assert.NoError(t, err)
 }
