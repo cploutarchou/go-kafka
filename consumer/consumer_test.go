@@ -1,12 +1,13 @@
 package consumer
 
 import (
-	"github.com/Shopify/sarama"
-	"github.com/stretchr/testify/assert"
 	"go-kafka/producer"
 	"log"
 	"os"
 	"sync"
+
+	"github.com/Shopify/sarama"
+	"github.com/stretchr/testify/assert"
 
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 func TestConsumer(t *testing.T) {
 	// create a test topic and start a producer
 	topic := "test_topic"
-	brokers := []string{"localhost:9092"}
+	brokers := []string{"192.168.88.50:9092"}
 	p, err := producer.NewProducer(brokers, topic, nil)
 	assert.NoError(t, err)
 

@@ -121,7 +121,7 @@ func (c *consumer) Start() error {
 		config.Consumer.Group.Rebalance.Retry.Backoff = 2 * time.Second
 	}
 
-	if config.Consumer.Offsets.AutoCommit.Enable == false {
+	if !config.Consumer.Offsets.AutoCommit.Enable {
 		config.Consumer.Offsets.AutoCommit.Enable = true
 		if config.Consumer.Offsets.AutoCommit.Interval == 0 {
 			config.Consumer.Offsets.AutoCommit.Interval = 1 * time.Second
@@ -146,12 +146,12 @@ func (c *consumer) Start() error {
 		config.Consumer.MaxWaitTime = c.config.MaxWait
 	}
 
-	consumer, err := sarama.NewConsumerGroup(c.config.Brokers, c.config.GroupID, config)
+	consumer_, err := sarama.NewConsumerGroup(c.config.Brokers, c.config.GroupID, config)
 	if err != nil {
 		return err
 	}
 
-	c.consumer = consumer
+	c.consumer = consumer_
 
 	if config.Consumer.Fetch.Default == 0 {
 		config.Consumer.Fetch.Default = 1024 * 1024 * 1024
@@ -160,7 +160,7 @@ func (c *consumer) Start() error {
 	// start the message consumption loop in a separate goroutine
 	go func() {
 		for {
-			if err := consumer.Consume(context.Background(), []string{c.config.Topic}, c); err != nil {
+			if err := consumer_.Consume(context.Background(), []string{c.config.Topic}, c); err != nil {
 				c.config.Logger.Printf("Error from consumer: %v", err)
 			}
 			// check if the consumer is closed
