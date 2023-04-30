@@ -2,7 +2,9 @@ package producer
 
 import (
 	"errors"
-	"go-kafka/types"
+
+	"github.com/cploutarchou/go_kafka/types"
+
 	"log"
 	"os"
 

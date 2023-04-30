@@ -1,12 +1,12 @@
 package consumer
 
 import (
-	"go-kafka/producer"
 	"log"
 	"os"
 	"sync"
 
 	"github.com/Shopify/sarama"
+	"github.com/cploutarchou/go_kafka/producer"
 	"github.com/stretchr/testify/assert"
 
 	"testing"

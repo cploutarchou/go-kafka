@@ -1,4 +1,4 @@
-module go-kafka
+module github.com/cploutarchou/go_kafka
 
 go 1.20
 

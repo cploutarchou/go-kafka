@@ -2,7 +2,9 @@ package producer
 
 import (
 	"fmt"
-	"go-kafka/types"
+
+	"github.com/cploutarchou/go_kafka/types"
+
 	"testing"
 	"time"
 )
