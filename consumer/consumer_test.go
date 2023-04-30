@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/Shopify/sarama"
-	"github.com/cploutarchou/go_kafka/producer"
+	"github.com/cploutarchou/gokafka/producer"
 	"github.com/stretchr/testify/assert"
 
 	"testing"

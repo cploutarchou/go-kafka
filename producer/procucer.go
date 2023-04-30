@@ -3,7 +3,7 @@ package producer
 import (
 	"errors"
 
-	"github.com/cploutarchou/go_kafka/types"
+	"github.com/cploutarchou/gokafka/types"
 
 	"log"
 	"os"

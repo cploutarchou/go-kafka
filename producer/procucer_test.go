@@ -3,10 +3,10 @@ package producer
 import (
 	"fmt"
 
-	"github.com/cploutarchou/go_kafka/types"
-
 	"testing"
 	"time"
+
+	"github.com/cploutarchou/gokafka/types"
 )
 
 func TestNewProducer(t *testing.T) {
